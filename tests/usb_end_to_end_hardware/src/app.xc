@@ -4,9 +4,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "control.h"
+#include "control_transport.h"
 #include "app.h"
 
-void app(server interface control i_control)
+void app(chanend c_control)
 {
   unsigned num_commands;
   int i;
@@ -21,15 +22,30 @@ void app(server interface control i_control)
   num_commands = 0;
 
   while (num_commands!=8) {
-    select {
-      case i_control.register_resources(control_resid_t resources[MAX_RESOURCES_PER_INTERFACE],
-                                        unsigned &num_resources):
-        resources[0] = RESOURCE_ID;
-        num_resources = 1;
+    int msg;
+    c_control :> msg;
+    switch (msg) {
+      case CONTROL_REGISTER_RESOURCES:
+        slave {
+          c_control <: 1;
+          c_control <: (control_ret_t)RESOURCE_ID;
+        }
         break;
 
-      case i_control.write_command(control_resid_t resid, control_cmd_t cmd,
-                                   const uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_WRITE_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        control_ret_t ret;
+        uint8_t payload[USB_DATA_MAX_BYTES];
+        unsigned payload_len;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+          for (int j = 0; j < payload_len; j++) {
+            c_control :> payload[j];
+          }
+        }
         num_commands++;
 #ifdef ERRONEOUS_DEVICE
         if ((num_commands % 3) == 0)
@@ -51,10 +67,20 @@ void app(server interface control i_control)
           break;
         }
         ret = CONTROL_SUCCESS;
+        c_control <: ret;
         break;
 
-      case i_control.read_command(control_resid_t resid, control_cmd_t cmd,
-                                  uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_READ_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        control_ret_t ret;
+        uint8_t payload[USB_DATA_MAX_BYTES];
+        unsigned payload_len;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+        }
         num_commands++;
 #ifdef ERRONEOUS_DEVICE
         if ((num_commands % 3) == 0)
@@ -80,6 +106,12 @@ void app(server interface control i_control)
           break;
         }
         ret = CONTROL_SUCCESS;
+        slave {
+          for (int j = 0; j < payload_len; j++) {
+            c_control <: payload[j];
+          }
+          c_control <: ret;
+        }
         break;
     }
   }

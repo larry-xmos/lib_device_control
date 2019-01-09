@@ -6,20 +6,35 @@
 #include "mic_array_board_support.h"
 #include "app.h"
 
-void app(server interface control i_control, client interface mabs_led_button_if i_leds_buttons)
+void app(chanend c_control, client interface mabs_led_button_if i_leds_buttons)
 {
   printf("started\n");
 
   while (1) {
-    select {
-      case i_control.register_resources(control_resid_t resources[MAX_RESOURCES_PER_INTERFACE],
-                                        unsigned &num_resources):
-        resources[0] = RESOURCE_ID;
-        num_resources = 1;
+    int msg;
+    c_control :> msg;
+    switch (msg) {
+      case CONTROL_REGISTER_RESOURCES:
+        slave {
+          c_control <: 1;
+          c_control <: (control_ret_t)RESOURCE_ID;
+        }
         break;
 
-      case i_control.write_command(control_resid_t resid, control_cmd_t cmd,
-                                   const uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_WRITE_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        control_ret_t ret;
+        uint8_t payload[64];
+        unsigned payload_len;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+          for (int j = 0; j < payload_len; j++) {
+            c_control :> payload[j];
+          }
+        }
         printf("W: %d %d %d,", resid, cmd, payload_len);
         for (int i = 0; i < payload_len; i++) {
           printf(" %02x", payload[i]);
@@ -35,10 +50,20 @@ void app(server interface control i_control, client interface mabs_led_button_if
           else i_leds_buttons.set_led_brightness(i, 0);
         }
         ret = CONTROL_SUCCESS;
+        c_control <: ret;
         break;
 
-      case i_control.read_command(control_resid_t resid, control_cmd_t cmd,
-                                  uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_READ_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        control_ret_t ret;
+        uint8_t payload[64];
+        unsigned payload_len;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+        }
         printf("R: %d %d %d\n", resid, cmd, payload_len);
         if (resid != RESOURCE_ID) {
           printf("unrecognised resource ID %d\n", resid);
@@ -56,6 +81,12 @@ void app(server interface control i_control, client interface mabs_led_button_if
         payload[0] = button;
         payload[1] = button_state;
         ret = CONTROL_SUCCESS;
+        slave {
+          for (int j = 0; j < payload_len; j++) {
+            c_control <: payload[j];
+          }
+          c_control <: ret;
+        }
         break;
     }
   }

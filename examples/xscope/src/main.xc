@@ -26,14 +26,14 @@ void xscope_user_init(void)
 }
 
 [[combinable]]
-void xscope_client(chanend c_xscope, client interface control i_control[1])
+void xscope_client(chanend c_xscope, chanend c_control[1])
 {
   uint8_t buffer[256]; /* 256 bytes from xscope.h */
   int num_bytes_read;
   unsigned return_size;
 
   control_init();
-  control_register_resources(i_control, 1);
+  control_register_resources(c_control, 1);
 
   xscope_connect_data_from_host(c_xscope);
 
@@ -42,7 +42,7 @@ void xscope_client(chanend c_xscope, client interface control i_control[1])
   while (1) {
     select {
       case xscope_data_from_host(c_xscope, buffer, num_bytes_read):
-        control_process_xscope_upload(buffer, sizeof(buffer), num_bytes_read, return_size, i_control);
+        control_process_xscope_upload(buffer, sizeof(buffer), num_bytes_read, return_size, c_control);
         if (return_size > 0) {
           xscope_core_bytes(0, return_size, buffer);
         }
@@ -54,13 +54,13 @@ void xscope_client(chanend c_xscope, client interface control i_control[1])
 int main(void)
 {
   chan c_xscope;
-  interface control i_control[1];
+  chan c_control[1];
   interface mabs_led_button_if i_leds_buttons[1];
 
   par {
     xscope_host_data(c_xscope);
-    on tile[0]: xscope_client(c_xscope, i_control);
-    on tile[0]: app(i_control[0], i_leds_buttons[0]);
+    on tile[0]: xscope_client(c_xscope, c_control);
+    on tile[0]: app(c_control[0], i_leds_buttons[0]);
     on tile[0]: mabs_button_and_led_server(i_leds_buttons, 1, p_leds, p_buttons);
   }
   return 0;

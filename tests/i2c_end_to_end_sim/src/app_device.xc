@@ -3,31 +3,32 @@
 #include <stdint.h>
 #include <assert.h>
 #include "control.h"
+#include "control_transport.h"
 #include "resource.h"
 #include "app_device.h"
 
-void i2c_client(server i2c_slave_callback_if i_i2c, client interface control i_control[1])
+void i2c_client(server i2c_slave_callback_if i_i2c, chanend c_control[1])
 {
   control_init();
-  control_register_resources(i_control, 1);
+  control_register_resources(c_control, 1);
   while (1) {
     select {
       case i_i2c.ack_write_request(void) -> i2c_slave_ack_t resp:
-        if (control_process_i2c_write_start(i_control) == CONTROL_SUCCESS)
+        if (control_process_i2c_write_start(c_control) == CONTROL_SUCCESS)
           resp = I2C_SLAVE_ACK;
         else
           resp = I2C_SLAVE_NACK;
         break;
 
       case i_i2c.ack_read_request(void) -> i2c_slave_ack_t resp:
-        if (control_process_i2c_read_start(i_control) == CONTROL_SUCCESS)
+        if (control_process_i2c_read_start(c_control) == CONTROL_SUCCESS)
           resp = I2C_SLAVE_ACK;
         else
           resp = I2C_SLAVE_NACK;
         break;
 
       case i_i2c.master_sent_data(uint8_t data) -> i2c_slave_ack_t resp:
-        if (control_process_i2c_write_data(data, i_control) == CONTROL_SUCCESS)
+        if (control_process_i2c_write_data(data, c_control) == CONTROL_SUCCESS)
           resp = I2C_SLAVE_ACK;
         else {
           resp = I2C_SLAVE_NACK;
@@ -35,11 +36,11 @@ void i2c_client(server i2c_slave_callback_if i_i2c, client interface control i_c
         break;
 
       case i_i2c.master_requires_data(void) -> uint8_t data:
-        control_process_i2c_read_data(data, i_control);
+        control_process_i2c_read_data(data, c_control);
         break;
 
       case i_i2c.stop_bit(void):
-        control_process_i2c_stop(i_control);
+        control_process_i2c_stop(c_control);
         break;
 
       /* not using these */
@@ -51,7 +52,7 @@ void i2c_client(server i2c_slave_callback_if i_i2c, client interface control i_c
   }
 }
 
-void app_device(server interface control i_control)
+void app_device(chanend c_control)
 {
   unsigned num_commands;
   int i;
@@ -64,15 +65,30 @@ void app_device(server interface control i_control)
   num_commands = 0;
 
   while (1) {
-    select {
-      case i_control.register_resources(control_resid_t resources[MAX_RESOURCES_PER_INTERFACE],
-                                        unsigned &num_resources):
-        resources[0] = RESOURCE_ID;
-        num_resources = 1;
+    int msg;
+    c_control :> msg;
+    switch (msg) {
+      case CONTROL_REGISTER_RESOURCES:
+        slave {
+          c_control <: 1;
+          c_control <: (control_resid_t)RESOURCE_ID;
+        }
         break;
 
-      case i_control.write_command(control_resid_t resid, control_cmd_t cmd,
-                                   const uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_WRITE_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        uint8_t payload[I2C_DATA_MAX_BYTES];
+        unsigned payload_len;
+        control_ret_t ret = CONTROL_SUCCESS;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+          for (i = 0; i < payload_len; i++) {
+            c_control :> payload[i];
+          }
+        }
         num_commands++;
 #ifdef ERRONEOUS_DEVICE
         if ((num_commands % 3) == 0)
@@ -86,13 +102,21 @@ void app_device(server interface control i_control)
         if (resid != RESOURCE_ID) {
           printf("unrecognised resource ID %d\n", resid);
           ret = CONTROL_ERROR;
-          break;
         }
-        ret = CONTROL_SUCCESS;
+        c_control <: ret;
         break;
 
-      case i_control.read_command(control_resid_t resid, control_cmd_t cmd,
-                                  uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_READ_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        control_ret_t ret = CONTROL_SUCCESS;
+        uint8_t payload[I2C_DATA_MAX_BYTES];
+        unsigned payload_len;
+        slave {
+          c_control :> resid;
+          c_control :> cmd;
+          c_control :> payload_len;
+        }
         num_commands++;
 #ifdef ERRONEOUS_DEVICE
         if ((num_commands % 3) == 0)
@@ -102,18 +126,23 @@ void app_device(server interface control i_control)
         if (resid != RESOURCE_ID) {
           printf("unrecognised resource ID %d\n", resid);
           ret = CONTROL_ERROR;
-          break;
         }
-        if (payload_len != 4) {
+        else if (payload_len != 4) {
           printf("expecting 4 read bytes, not %d\n", payload_len);
           ret = CONTROL_ERROR;
-          break;
         }
-        payload[0] = 0x12;
-        payload[1] = 0x34;
-        payload[2] = 0x56;
-        payload[3] = 0x78;
-        ret = CONTROL_SUCCESS;
+        else {
+          payload[0] = 0x12;
+          payload[1] = 0x34;
+          payload[2] = 0x56;
+          payload[3] = 0x78;
+        }
+        slave {
+          for (int j = 0; j < payload_len; j++) {
+            c_control <: payload[j];
+          }
+          c_control <: ret;
+        }
         break;
     }
   }

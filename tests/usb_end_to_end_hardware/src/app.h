@@ -7,6 +7,6 @@
 /* Arbitrary resource ID assigned. Could be anything from 0x01 to 0xff */
 #define RESOURCE_ID 0x12
 
-void app(server interface control i_control);
+void app(chanend c_control);
 
 #endif // __app_h__

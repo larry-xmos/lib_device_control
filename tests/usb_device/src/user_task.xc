@@ -3,48 +3,77 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "control.h"
+#include "control_transport.h"
 #include "user_task.h"
 
-void user_task(server interface control i, chanend c)
+void user_task(chanend i, chanend c)
 {
-  int j;
-
   while (1) {
-    select {
-      case i.register_resources(control_resid_t resources[MAX_RESOURCES_PER_INTERFACE],
-                                unsigned &num_resources):
+    int msg;
+    i :> msg;
+    switch (msg) {
+      case CONTROL_REGISTER_RESOURCES:
+        unsigned num_resources;
+        control_resid_t resources[MAX_RESOURCES_PER_INTERFACE];
         c :> num_resources;
         for (int k = 0; k < num_resources; k++) {
-          unsigned x;
-          c :> x;
-          resources[k] = x;
+          unsigned word;
+          c :> word;
+          resources[k] = word;
+        }
+        slave {
+          i <: num_resources;
+          for (int k = 0; k < num_resources; k++) {
+            i <: resources[k];
+          }
         }
         break;
 
-      case i.write_command(control_resid_t resid, control_cmd_t cmd,
-                           const uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_WRITE_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        uint8_t payload[I2C_DATA_MAX_BYTES];
+        unsigned payload_len;
+        slave {
+          i :> resid;
+          i :> cmd;
+          i :> payload_len;
+          for (int j = 0; j < payload_len; j++) {
+            i :> payload[j];
+          }
+        }
         c <: cmd;
         c <: resid;
         c <: payload_len;
-        for (j = 0; j < payload_len; j++) {
+        for (int j = 0; j < payload_len; j++) {
           c <: payload[j];
         }
-        ret = CONTROL_SUCCESS;
+        i <: (control_ret_t)CONTROL_SUCCESS;
         break;
 
-      case i.read_command(control_resid_t resid, control_cmd_t cmd,
-                          uint8_t payload[payload_len], unsigned payload_len) -> control_ret_t ret:
+      case CONTROL_READ_COMMAND:
+        control_resid_t resid;
+        control_cmd_t cmd;
+        uint8_t payload[I2C_DATA_MAX_BYTES];
+        unsigned payload_len;
+        slave {
+          i :> resid;
+          i :> cmd;
+          i :> payload_len;
+        }
         c <: cmd;
         c <: resid;
         c <: payload_len;
-        for (j = 0; j < payload_len; j++) {
-          uint8_t x; /* must use temporary variable (bug 17370) */
-          c :> x;
-          payload[j] = x;
+        for (int j = 0; j < payload_len; j++) {
+          c :> payload[j];
         }
-        ret = CONTROL_SUCCESS;
+        slave {
+          for (int j = 0; j < payload_len; j++) {
+            i <: payload[j];
+          }
+          i <: (control_ret_t)CONTROL_SUCCESS;
+        }
         break;
     }
   }
 }
-

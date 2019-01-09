@@ -10,7 +10,7 @@
 #include "support_inline.h"
 #include "user_task.h"
 
-void test_client(client interface control i[3], chanend c_user_task[3])
+void test_client(chanend i[3], chanend c_user_task[3])
 {
   uint16_t windex, wvalue, wlength;
   struct command c1, c2;
@@ -95,7 +95,7 @@ void test_client(client interface control i[3], chanend c_user_task[3])
 
 int main(void)
 {
-  interface control i[3];
+  chan i[3];
   chan c_user_task[3];
   par {
     test_client(i, c_user_task);

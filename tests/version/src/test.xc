@@ -6,7 +6,7 @@
 #include "control_transport.h"
 #include "control_host_support.h"
 
-void test_xscope(client interface control i[1])
+void test_xscope(chanend i[1])
 {
   uint32_t buf[64];
   struct control_xscope_response *resp;
@@ -36,7 +36,7 @@ void test_xscope(client interface control i[1])
   }
 }
 
-void test_usb(client interface control i[1])
+void test_usb(chanend i[1])
 {
   uint16_t windex, wvalue, wlength;
   uint8_t request_data[64];
@@ -59,7 +59,7 @@ void test_usb(client interface control i[1])
   }
 }
 
-void test_i2c(client interface control i[1])
+void test_i2c(chanend i[1])
 {
   uint8_t buf[I2C_TRANSACTION_MAX_BYTES];
   control_version_t version;
@@ -93,14 +93,14 @@ void test_i2c(client interface control i[1])
   }
 }
 
-void dummy_user_task(server interface control i)
+void dummy_user_task(chanend i)
 {
   // nothing
 }
 
 int main(void)
 {
-  interface control i[1];
+  chan i[1];
   par {
     { control_init();
       test_xscope(i);

@@ -26,17 +26,23 @@ control_ret_t control_init(void)
   return CONTROL_SUCCESS;
 }
 
-control_ret_t control_register_resources(client interface control i[n], unsigned n)
+control_ret_t control_register_resources(chanend c[n], unsigned n)
 {
   control_resid_t r[MAX_RESOURCES_PER_INTERFACE];
   control_ret_t ret;
   unsigned n0;
-  unsigned j;
+  unsigned i, j;
 
   ret = CONTROL_SUCCESS;
 
   for (j = 0; j < n; j++) {
-    i[j].register_resources(r, n0);
+    c[j] <: CONTROL_REGISTER_RESOURCES;
+    master {
+      c[j] :> n0;
+      for (i = 0; i < n0; i++) {
+        c[j] :> r[i];
+      }
+    }
     if (resource_table_add(r, n0, j) != 0)
       ret = CONTROL_REGISTRATION_FAILED;
   }
@@ -91,7 +97,7 @@ special_read_command(control_cmd_t cmd, uint8_t payload[], unsigned payload_len)
 }
 
 static control_ret_t
-write_command(client interface control i[],
+write_command(chanend c[],
               unsigned char ifnum, control_resid_t resid, control_cmd_t cmd,
               const uint8_t payload[], unsigned payload_len)
 {
@@ -102,14 +108,24 @@ write_command(client interface control i[],
   else {
     debug_printf("%d write command %d, %d, %d\n", ifnum, resid, cmd, payload_len);
     debug_channel_activity(ifnum, 1);
-    control_ret_t ret = i[ifnum].write_command(resid, cmd, payload, payload_len);
+    control_ret_t ret;
+    c[ifnum] <: CONTROL_WRITE_COMMAND;
+    master {
+      c[ifnum] <: resid;
+      c[ifnum] <: cmd;
+      c[ifnum] <: payload_len;
+      for (int i = 0; i < payload_len; i++) {
+        c[ifnum] <: payload[i];
+      }
+    }
+    c[ifnum] :> ret;
     debug_channel_activity(ifnum, 0);
     return ret;
   }
 }
 
 static control_ret_t
-read_command(client interface control i[],
+read_command(chanend c[],
              unsigned char ifnum, control_resid_t resid, control_cmd_t cmd,
              uint8_t payload[], unsigned payload_len)
 {
@@ -119,14 +135,26 @@ read_command(client interface control i[],
   else {
     debug_printf("%d read command %d, %d, %d\n", ifnum, resid, cmd, payload_len);
     debug_channel_activity(ifnum, 1);
-    control_ret_t ret = i[ifnum].read_command(resid, cmd, payload, payload_len);
+    control_ret_t ret;
+    c[ifnum] <: CONTROL_READ_COMMAND;
+    master {
+      c[ifnum] <: resid;
+      c[ifnum] <: cmd;
+      c[ifnum] <: payload_len;
+    }
+    master {
+      for (int i = 0; i < payload_len; i++) {
+        c[ifnum] :> payload[i];
+      }
+      c[ifnum] :> ret;
+    }
     debug_channel_activity(ifnum, 0);
     return ret;
   }
 }
 
 control_ret_t
-control_process_i2c_write_start(client interface control i[])
+control_process_i2c_write_start(chanend c[])
 {
   // always start a new command
   // that way a write start recovers us from errors
@@ -135,7 +163,7 @@ control_process_i2c_write_start(client interface control i[])
 }
 
 control_ret_t
-control_process_i2c_write_data(const uint8_t data, client interface control i[])
+control_process_i2c_write_data(const uint8_t data, chanend c[])
 {
   unsigned char ifnum;
 
@@ -168,7 +196,7 @@ control_process_i2c_write_data(const uint8_t data, client interface control i[])
       i2c.payload_len_transmitted = 0;
       i2c.state = I2C_WRITE_SIZE;
       if (i2c.payload_len_from_header == 0) {
-        return write_command(i, i2c.ifnum, i2c.resid, i2c.cmd,
+        return write_command(c, i2c.ifnum, i2c.resid, i2c.cmd,
           i2c.payload, i2c.payload_len_transmitted);
       }
       else {
@@ -187,7 +215,7 @@ control_process_i2c_write_data(const uint8_t data, client interface control i[])
       i2c.payload_len_transmitted = 1;
       i2c.state = I2C_WRITE_DATA;
       if (i2c.payload_len_from_header == 1) {
-        return write_command(i, i2c.ifnum, i2c.resid, i2c.cmd,
+        return write_command(c, i2c.ifnum, i2c.resid, i2c.cmd,
           i2c.payload, i2c.payload_len_transmitted);
       }
       else {
@@ -206,7 +234,7 @@ control_process_i2c_write_data(const uint8_t data, client interface control i[])
       i2c.payload[i2c.payload_len_transmitted] = data;
       i2c.payload_len_transmitted++;
       if (i2c.payload_len_transmitted == i2c.payload_len_from_header) {
-        return write_command(i, i2c.ifnum, i2c.resid, i2c.cmd,
+        return write_command(c, i2c.ifnum, i2c.resid, i2c.cmd,
           i2c.payload, i2c.payload_len_transmitted);
       }
       else {
@@ -224,7 +252,7 @@ control_process_i2c_write_data(const uint8_t data, client interface control i[])
 }
 
 control_ret_t
-control_process_i2c_read_start(client interface control i[])
+control_process_i2c_read_start(chanend c[])
 {
   control_ret_t ret;
 
@@ -237,7 +265,7 @@ control_process_i2c_read_start(client interface control i[])
     if (IS_CONTROL_CMD_READ(i2c.cmd)) {
       // assume this is a repeated start
 
-      ret = read_command(i, i2c.ifnum, i2c.resid, i2c.cmd,
+      ret = read_command(c, i2c.ifnum, i2c.resid, i2c.cmd,
         i2c.payload, i2c.payload_len_from_header);
 
       if (ret == CONTROL_SUCCESS) {
@@ -258,7 +286,7 @@ control_process_i2c_read_start(client interface control i[])
 }
 
 control_ret_t
-control_process_i2c_read_data(uint8_t &data, client interface control i[])
+control_process_i2c_read_data(uint8_t &data, chanend c[])
 {
   if (i2c.state == I2C_READ_START) {
     data = i2c.payload[0];
@@ -285,7 +313,7 @@ control_process_i2c_read_data(uint8_t &data, client interface control i[])
 }
 
 control_ret_t
-control_process_i2c_stop(client interface control i[])
+control_process_i2c_stop(chanend c[])
 {
   control_ret_t ret;
 
@@ -338,8 +366,7 @@ control_process_i2c_stop(client interface control i[])
 
 control_ret_t
 control_process_usb_set_request(uint16_t windex, uint16_t wvalue, uint16_t wlength,
-                                const uint8_t request_data[],
-                                client interface control i[])
+                                const uint8_t request_data[], chanend c[])
 {
   unsigned payload_len;
   control_resid_t resid;
@@ -360,13 +387,12 @@ control_process_usb_set_request(uint16_t windex, uint16_t wvalue, uint16_t wleng
     return CONTROL_BAD_COMMAND;
   }
 
-  return write_command(i, ifnum, resid, cmd, request_data, payload_len);
+  return write_command(c, ifnum, resid, cmd, request_data, payload_len);
 }
 
 control_ret_t
 control_process_usb_get_request(uint16_t windex, uint16_t wvalue, uint16_t wlength,
-                                uint8_t request_data[],
-                                client interface control i[])
+                                uint8_t request_data[], chanend c[])
 {
   unsigned payload_len;
   control_resid_t resid;
@@ -387,13 +413,13 @@ control_process_usb_get_request(uint16_t windex, uint16_t wvalue, uint16_t wleng
     return CONTROL_BAD_COMMAND;
   }
 
-  return read_command(i, ifnum, resid, cmd, request_data, payload_len);
+  return read_command(c, ifnum, resid, cmd, request_data, payload_len);
 }
 
 control_ret_t
 control_process_xscope_upload(uint8_t buf[], unsigned buf_size,
                               unsigned length_in, unsigned &length_out,
-                              client interface control i[])
+                              chanend c[])
 {
   struct control_xscope_packet *p;
   struct control_xscope_response *r;
@@ -410,7 +436,7 @@ control_process_xscope_upload(uint8_t buf[], unsigned buf_size,
   }
 
   if (IS_CONTROL_CMD_READ(p->cmd)) {
-    r->ret = read_command(i, ifnum, p->resid, p->cmd,
+    r->ret = read_command(c, ifnum, p->resid, p->cmd,
       buf + sizeof(struct control_xscope_response), p->payload_len);
 
     // only return data if user task indicated success
@@ -418,7 +444,7 @@ control_process_xscope_upload(uint8_t buf[], unsigned buf_size,
       length_out += p->payload_len;
   }
   else {
-    r->ret = write_command(i, ifnum, p->resid, p->cmd,
+    r->ret = write_command(c, ifnum, p->resid, p->cmd,
       buf + sizeof(struct control_xscope_packet), p->payload_len);
   }
 
@@ -453,7 +479,7 @@ static struct {
 /************/
 
 control_ret_t
-control_process_spi_master_ends_transaction(client interface control i_ctl[])
+control_process_spi_master_ends_transaction(chanend c[])
 {
   /* Debugging */
   // debug_printf("Recieved: ");
@@ -474,7 +500,7 @@ control_process_spi_master_ends_transaction(client interface control i_ctl[])
                      spi.payload_len_from_header, spi.payload_len_transmitted);
         ret = CONTROL_ERROR;
       } else {
-        ret = write_command(i_ctl, spi.ifnum, spi.resid, spi.cmd, 
+        ret = write_command(c, spi.ifnum, spi.resid, spi.cmd, 
                             spi.payload, spi.payload_len_transmitted);
       }
       break;
@@ -504,14 +530,14 @@ control_process_spi_master_ends_transaction(client interface control i_ctl[])
 }
 
 control_ret_t
-control_process_spi_master_requires_data(uint32_t &data, client interface control i_ctl[])
+control_process_spi_master_requires_data(uint32_t &data, chanend c[])
 { 
   control_ret_t ret = CONTROL_SUCCESS;
   data = 0;
 
   switch(spi.state) {
     case SPI_READ_DATA_START:
-      ret = read_command(i_ctl, spi.ifnum, spi.resid, spi.cmd, 
+      ret = read_command(c, spi.ifnum, spi.resid, spi.cmd, 
                          spi.payload, spi.payload_len_from_header);
       spi.state = SPI_READ_DATA_WAIT;
       break;
@@ -529,7 +555,7 @@ control_process_spi_master_requires_data(uint32_t &data, client interface contro
 }
 
 control_ret_t
-control_process_spi_master_supplied_data(uint32_t datum, uint32_t valid_bits, client interface control i_ctl[])
+control_process_spi_master_supplied_data(uint32_t datum, uint32_t valid_bits, chanend c[])
 { 
   /* Debugging */
   // buffer[buffer_length] = (unsigned char) datum;

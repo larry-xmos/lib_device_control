@@ -1,6 +1,11 @@
 Device control library change log
 =================================
 
+4.0.0
+-----
+
+  * Channel based API to reduce channel end usage
+
 3.2.3
 -----
 

@@ -20,7 +20,7 @@ on tile[0]: mabs_led_ports_t p_leds = {
 
 on tile[0]: in port p_buttons =  MIC_BOARD_SUPPORT_BUTTON_PORTS;
 
-void endpoint0(chanend c_ep0_out, chanend c_ep0_in, client interface control i_control[1])
+void endpoint0(chanend c_ep0_out, chanend c_ep0_in, chanend c_control[1])
 {
   USB_SetupPacket_t sp;
   XUD_Result_t res;
@@ -34,7 +34,7 @@ void endpoint0(chanend c_ep0_out, chanend c_ep0_in, client interface control i_c
   ep0_in = XUD_InitEp(c_ep0_in, XUD_EPTYPE_CTL | XUD_STATUS_ENABLE);
 
   control_init();
-  control_register_resources(i_control, 1);
+  control_register_resources(c_control, 1);
 
   while (1) {
     res = USB_GetSetupPacket(ep0_out, ep0_in, sp);
@@ -52,7 +52,7 @@ void endpoint0(chanend c_ep0_out, chanend c_ep0_in, client interface control i_c
           res = XUD_GetBuffer(ep0_out, request_data, len);
           if (res == XUD_RES_OKAY) {
             if (control_process_usb_set_request(sp.wIndex, sp.wValue, sp.wLength,
-                                                request_data, i_control) == CONTROL_SUCCESS) {
+                                                request_data, c_control) == CONTROL_SUCCESS) {
               /* zero length data to indicate success
                * on control error, go to standard requests, which will issue STALL
                */
@@ -67,7 +67,7 @@ void endpoint0(chanend c_ep0_out, chanend c_ep0_in, client interface control i_c
            * XUD task defers further calls by NAKing USB transactions
            */
           if (control_process_usb_get_request(sp.wIndex, sp.wValue, sp.wLength,
-                                              request_data, i_control) == CONTROL_SUCCESS) {
+                                              request_data, c_control) == CONTROL_SUCCESS) {
             len = sp.wLength;
             res = XUD_DoGetRequest(ep0_out, ep0_in, request_data, len, len);
             handled = 1;
@@ -108,15 +108,15 @@ enum {
 int main(void)
 {
   chan c_ep_out[NUM_EP_OUT], c_ep_in[NUM_EP_IN];
-  interface control i_control[1];
+  chan c_control[1];
   interface mabs_led_button_if i_leds_buttons[1];
   par {
     on USB_TILE: par {
-      endpoint0(c_ep_out[0], c_ep_in[0], i_control);
-      xud(c_ep_out, NUM_EP_OUT, c_ep_in, NUM_EP_IN, null, XUD_SPEED_HS, XUD_PWR_SELF);
+      endpoint0(c_ep_out[0], c_ep_in[0], c_control);
+      xud(c_ep_out, NUM_EP_OUT, c_ep_in, NUM_EP_IN, null, XUD_SPEED_HS, XUD_PWR_BUS);
     }
     on tile[0]: par {
-      app(i_control[0], i_leds_buttons[0]);
+      app(c_control[0], i_leds_buttons[0]);
       mabs_button_and_led_server(i_leds_buttons, 1, p_leds, p_buttons);
     }
   }
